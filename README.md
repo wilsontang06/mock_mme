@@ -13,7 +13,6 @@ The settings that is in the implementation right now relies on these facts about
 * There are two HSS's running on the local machine on localhost
 * One HSS is running on port 3868 and the second is running on port 3869
 * oai_hss only allows support for one mme (mme.OpenAir5G.Alliance)?
-* 
 
 
 ## Build
