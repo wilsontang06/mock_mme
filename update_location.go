@@ -46,13 +46,13 @@ func handleUpdateLocationAnswer(received chan ReceivedResult) diam.HandlerFunc {
 		err := m.Unmarshal(&ula)
 		if err != nil {
 			log.Printf("ULA Unmarshal failed: %s", err)
-			received <- ReceivedResult{0, -2}
+			received <- ReceivedResult{0, -2, c.RemoteAddr()}
 		} else {
 			sid, _ := strconv.Atoi(ula.SessionID[8:])
 			if validateULAResponse(ula) == 1 {
-				received <- ReceivedResult{sid, 0}
+				received <- ReceivedResult{sid, 0, c.RemoteAddr()}
 			} else {
-				received <- ReceivedResult{sid, -1}
+				received <- ReceivedResult{sid, -1, c.RemoteAddr()}
 			}
 			// log.Printf("Unmarshaled UL Answer:\n%#+v\n", ula)
 			// log.Printf("ULA result code: 0x%x\n", ula.ResultCode)

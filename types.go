@@ -1,10 +1,15 @@
 package main
 
-import "github.com/fiorix/go-diameter/diam/datatype"
+import (
+	"net"
+
+	"github.com/fiorix/go-diameter/diam/datatype"
+)
 
 type ReceivedResult struct {
-	sid    int
-	result int
+	sid        int
+	result     int
+	remoteAddr net.Addr
 }
 
 type EUtranVector struct {

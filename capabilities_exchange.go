@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log"
-
 	"github.com/fiorix/go-diameter/diam"
 	"github.com/fiorix/go-diameter/diam/sm"
 	"github.com/fiorix/go-diameter/diam/sm/smparser"
@@ -19,7 +17,7 @@ func handleCEAClient(sme *sm.StateMachine, errc chan error) diam.HandlerFunc {
 			return
 		}
 		// log.Printf("CEA parsed:\n%#+v\n", cea)
-		log.Printf("CEA result code: %#+v\n", cea.ResultCode)
+		// log.Printf("CEA result code: %#+v\n", cea.ResultCode)
 		meta := smpeer.FromCEA(cea)
 		c.SetContext(smpeer.NewContext(c.Context(), meta))
 		// Notify about peer passing the handshake.

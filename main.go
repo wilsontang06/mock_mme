@@ -10,7 +10,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"sync"
+	"strconv"
 	"time"
 
 	"github.com/fiorix/go-diameter/diam"
@@ -25,6 +25,7 @@ func init() {
 }
 
 var (
+	// configuration variables for hss connection
 	realm           = flag.String("diam_realm", "OpenAir5G.Alliance", "diameter identity realm")
 	networkType     = flag.String("network_type", "tcp", "protocol type tcp/sctp/tcp4/tcp6/sctp4/sctp6")
 	retries         = flag.Uint("retries", 3, "Maximum number of retransmits")
@@ -46,7 +47,8 @@ var (
 		flag.String("diam_host2", "mme.OpenAir5G.Alliance", "diameter identity host2"),
 	}
 
-	ueIMSIs = [12]*string{
+	// test arrays of imsi's
+	ueIMSIs = []*string{
 		flag.String("imsi1", "001010123456789", "Client (UE) IMSI 1"),
 		flag.String("imsi2", "208920100001100", "Client (UE) IMSI 2"),
 		flag.String("imsi3", "208920100001101", "Client (UE) IMSI 3"),
@@ -61,7 +63,7 @@ var (
 		flag.String("imsi12", "208920100001111", "Client (UE) IMSI 12"),
 	}
 
-	badUeIMSIs = [12]*string{
+	badUeIMSIs = []*string{
 		flag.String("badimsi1", "123456789123456", "Bad Client (UE) IMSI 1"),
 		flag.String("badimsi2", "123456789123457", "Bad Client (UE) IMSI 2"),
 		flag.String("badimsi3", "123456789123458", "Bad Client (UE) IMSI 3"),
@@ -76,7 +78,7 @@ var (
 		flag.String("badimsi12", "123456789123467", "Bad Client (UE) IMSI 12"),
 	}
 
-	mixUeIMSIs = [12]*string{
+	mixUeIMSIs = []*string{
 		flag.String("miximsi1", "001010123456789", "Client (UE) IMSI 1"),
 		flag.String("miximsi7", "123456789123456", "Bad Client (UE) IMSI 1"),
 		flag.String("miximsi2", "208920100001100", "Client (UE) IMSI 2"),
@@ -90,20 +92,22 @@ var (
 		flag.String("miximsi6", "208920100001104", "Client (UE) IMSI 6"),
 		flag.String("miximsi12", "123456789123461", "Bad Client (UE) IMSI 6"),
 	}
+
+	loadTestRequestNums = []int{10, 100, 500, 1000, 3000, 6000}
 )
 
+// received channel to put into ULR handler
 var received = make(chan ReceivedResult)
 
 func main() {
-
-	flag.Parse()
-
 	var i int
-	// var j int
 	var cfgs [2]*sm.Settings
 	var conns [2]diam.Conn
 
-	var lock sync.Mutex
+	var successes, failures int
+	var duration time.Duration
+
+	log.Printf("Begin Connection...\n")
 
 	// connect the mme's to the hss's
 	// 2 hss' is the current pattern
@@ -144,7 +148,6 @@ func main() {
 		}
 
 		// Set message handlers.
-
 		mux.HandleIdx(
 			diam.CommandIndex{AppID: diam.TGPP_S6A_APP_ID, Code: diam.UpdateLocation, Request: false},
 			handleUpdateLocationAnswer(received))
@@ -161,202 +164,41 @@ func main() {
 		conns[i] = conn
 	}
 
-	requests := 100
-	recCount := 0
-	sentCount := 0
+	log.Printf("Connected\n")
+	log.Printf("Begin Tests...\n")
 
-	// load test hss 1 with 1 imsi a lot of times
-	// seems like ~9000 (8500-9500) is the limit i got to with a 1/1000th second gap between each call
-	// hits "readBody Error: unexpected EOF, 308 bytes read" inconsistently
+	// run load tests with 1 single imsi
+	for i := 0; i < len(loadTestRequestNums); i++ {
+		successes, failures, duration = runTest(
+			loadTest(conns[0], cfgs[0]), []*string{ueIMSIs[0]}, loadTestRequestNums[i], 1, false)
 
-	// HSS sents back packets in batches when it sees a lot of requests. But when the
-	// requests hit around 30-35, it will send one batch and then sent all the next responses
-	// one at a time and performance suffers
-	// though when i test it in the thousands, it will batch it again
-
-	sentIds := make([]int, requests)
-	sentTimes := make(map[int]time.Time)
-	receivedTimes := make(map[int]time.Duration)
-
-	sent := make(chan int)
-	sentErr := make(chan struct{})
-	for i = 0; i < requests; i++ {
-		// time delay?
-		randomVal := int(rand.Uint32())
-		_, ok := sentTimes[randomVal]
-		for ok {
-			randomVal = int(rand.Uint32())
-			_, ok = sentTimes[randomVal]
-		}
-		go sendULR(conns[0], cfgs[0], ueIMSIs[0], randomVal, sent, sentErr)
+		printResults(i,
+			"Load Testing 1 HSS Results with "+strconv.Itoa(loadTestRequestNums[i])+" requests",
+			successes, failures, loadTestRequestNums[i], duration)
 	}
 
-Wait:
-	// the first response that comes back isn't necessarily the first one that was sent
-	for recCount < requests {
-		var r int
-		select {
-		case r = <-sent:
-			currTime := time.Now()
-			lock.Lock()
-			sentTimes[r] = currTime
-			sentIds[sentCount] = r
-			sentCount++
-			lock.Unlock()
-			if sentCount == requests {
-				log.Printf("sent all requests for 0-th test")
-			}
-			// log.Printf("sent %d %v\n", sentCount, sentTimes[r])
-		case r := <-received:
-			currTime := time.Now()
-			lock.Lock()
-			receivedTimes[r.sid] = currTime.Sub(sentTimes[r.sid])
-			recCount++
-			lock.Unlock()
-			// log.Printf("received %d %v\n", r, receivedTimes[r])
-		case <-sentErr:
-			sentCount++
-			log.Printf("sending %d request failed", sentCount+1)
-			break Wait
-		// wait 20 seconds for responses to come back
-		case <-time.After(20 * time.Second):
-			log.Printf("timed out waiting for ULR")
-			break Wait
-		}
-	}
+	// 2 hss test - success
+	successes, failures, duration = runTest(
+		twoHSSTest(conns[0], conns[1], cfgs[0], cfgs[1]),
+		ueIMSIs, len(ueIMSIs), 2, false)
+	printResults(1, "2 HSS Testing - success cases",
+		successes, failures, len(ueIMSIs)*2, duration)
 
-	for i = 0; i < len(sentIds); i++ {
-		dur, ok := receivedTimes[sentIds[i]]
-		if ok {
-			log.Printf("received %d of sid %d in %v\n", i+1, sentIds[i], dur)
-		} else {
-			log.Printf("failed to receive %d with sid %d\n", i+1, sentIds[i])
-		}
-	}
+	// 2 hss test - failure
+	successes, failures, duration = runTest(
+		twoHSSTest(conns[0], conns[1], cfgs[0], cfgs[1]),
+		badUeIMSIs, len(badUeIMSIs), 2, false)
+	printResults(2, "2 HSS Testing - failure cases",
+		successes, failures, len(badUeIMSIs)*2, duration)
 
-	log.Printf("0.Load Testing 1 HSS Results:")
-	/*
-		log.Printf("Successes: %d\n", successes)
-		log.Printf("Failures: %d\n", failures)
-		log.Printf("Missing: %d\n", requests-(successes+failures))
-	*/
+	// 2 hss test - mixture
+	successes, failures, duration = runTest(
+		twoHSSTest(conns[0], conns[1], cfgs[0], cfgs[1]),
+		mixUeIMSIs, len(mixUeIMSIs), 2, false)
+	printResults(3, "2 HSS Testing - mixture cases",
+		successes, failures, len(mixUeIMSIs)*2, duration)
 
-	// load test hss 1 and 2 with 12 imsi's 10 times with all success
-	/*
-			successes = 0
-			failures = 0
-
-			requests = 10
-			count = 0
-			for i = 0; i < requests; i++ {
-				for j = 0; j < len(ueIMSIs); j++ {
-					err := sendULR(conns[0], cfgs[0], ueIMSIs[j])
-					if err != nil {
-						log.Fatal(err)
-					}
-					// log.Printf("sent %d\n", i+1)
-
-					err2 := sendULR(conns[1], cfgs[0], ueIMSIs[j])
-					if err2 != nil {
-						log.Fatal(err2)
-					}
-				}
-			}
-
-		Wait1:
-			for count < requests*2*12 {
-				select {
-				case <-done:
-					count++
-					// log.Printf("received %d\n", count)
-				case <-time.After(10 * time.Second):
-					log.Printf("1.'all successes' test failed to receive all responses")
-					break Wait1
-				}
-			}
-
-			log.Printf("1.'All Successes' Test Results:")
-			log.Printf("Successes: %d\n", successes)
-			log.Printf("Failures: %d\n", failures)
-	*/
-
-	// load test hss 1 and 2 with 12 imsi's 10 times with all fails
-	/*
-			successes = 0
-			failures = 0
-
-			requests = 10
-			count = 0
-			for i = 0; i < requests; i++ {
-				for j = 0; j < len(ueIMSIs); j++ {
-					err := sendULR(conns[0], cfgs[0], badUeIMSIs[j])
-					if err != nil {
-						log.Fatal(err)
-					}
-					// log.Printf("sent %d\n", i+1)
-
-					err2 := sendULR(conns[1], cfgs[0], badUeIMSIs[j])
-					if err2 != nil {
-						log.Fatal(err2)
-					}
-				}
-			}
-
-		Wait2:
-			for count < requests*2*12 {
-				select {
-				case <-done:
-					count++
-					// log.Printf("received %d\n", count)
-				case <-time.After(10 * time.Second):
-					log.Printf("2.'all failures' test failed to receive all responses")
-					break Wait2
-				}
-			}
-
-			log.Printf("2.'All Faiures' Test Results:")
-			log.Printf("Successes: %d\n", successes)
-			log.Printf("Failures: %d\n", failures)
-	*/
-
-	// load test hss 1 and 2 with 12 imsi's 10 times with half success, half fail
-	/*
-			successes = 0
-			failures = 0
-
-			requests = 10
-			count = 0
-			for i = 0; i < requests; i++ {
-				for j = 0; j < len(ueIMSIs); j++ {
-					err := sendULR(conns[0], cfgs[0], mixUeIMSIs[j])
-					if err != nil {
-						log.Fatal(err)
-					}
-					// log.Printf("sent %d\n", i+1)
-
-					err2 := sendULR(conns[1], cfgs[0], mixUeIMSIs[j])
-					if err2 != nil {
-						log.Fatal(err2)
-					}
-				}
-			}
-
-		Wait3:
-			for count < requests*2*12 {
-				select {
-				case <-done:
-					count++
-					// log.Printf("received %d\n", count)
-				case <-time.After(10 * time.Second):
-					log.Printf("3.'half successes/half failures' test failed to receive all responses")
-					break Wait3
-				}
-			}
-
-			log.Printf("3.'Half Success/Half Failure' Test Results:")
-			log.Printf("Successes: %d\n", successes)
-			log.Printf("Failures: %d\n", failures)
-	*/
+	log.Printf("Testing Completed. Goodbye :)")
 }
 
 func printErrors(ec <-chan *diam.ErrorReport) {
@@ -365,8 +207,37 @@ func printErrors(ec <-chan *diam.ErrorReport) {
 	}
 }
 
-/*
-func loadTestHSS(numRequests int, sent chan int, sentErr chan struct{}) {
-	sendULR(conns[0], cfgs[0], ueIMSIs[0], randomVal, sent, sentErr)
+// loadTest() is an example of a testFunc that will be passed into the runTest method.
+// parameters: the connection and cfg of the hss
+// return: a function that takes in an int[] of sids, an imsi, and two sent channels (one good, one error)
+// the use case is to send one imsi to multiple hss', but since this is a load test, there is
+// only one request to an hss
+func loadTest(connection diam.Conn, cfgs *sm.Settings) func([]int, *string, chan int, chan struct{}) {
+	return func(sids []int, imsi *string, sent chan int, sentErr chan struct{}) {
+		sendULR(connection, cfgs, imsi, sids[0], sent, sentErr)
+	}
 }
-*/
+
+// twoHSSTest() is an example of a testFunc that will be passed into the runTest method.
+// parameters: two hss connections and two hss cfgs
+// return: a function that takes in an int[] of sids, an imsi, and two sent channels (one good, one error)
+// sends a ULR to the first hss, wait 2 seconds, and then send a ULR with the same imsi to a 2nd HSS
+// different sids so each request can be tracked in our tests
+func twoHSSTest(hss1 diam.Conn, hss2 diam.Conn,
+	cfg1 *sm.Settings, cfg2 *sm.Settings) func([]int, *string, chan int, chan struct{}) {
+	return func(sids []int, imsi *string, sent chan int, sentErr chan struct{}) {
+		sendULR(hss1, cfg1, imsi, sids[0], sent, sentErr)
+		time.Sleep(2 * time.Second)
+		sendULR(hss2, cfg2, imsi, sids[1], sent, sentErr)
+	}
+}
+
+// print the results of the test
+func printResults(index int, testName string, successes int, failures int,
+	total int, duration time.Duration) {
+	log.Printf("%d. %s:", index, testName)
+	log.Printf("   Successes: %d\n", successes)
+	log.Printf("   Failures: %d\n", failures)
+	log.Printf("   Missing: %d\n", total-(successes+failures))
+	log.Printf("   Finished in: %v\n", duration)
+}
