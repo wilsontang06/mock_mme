@@ -9,7 +9,9 @@ similar ULR's to multiple HSS's (for a distributed HSS).
 
 
 The HSS used while building this testing framework was UW ICTD Lab's CoLTE project.
-The settings that is in the implementation right now relies on these facts about the HSS:
+
+
+The settings that are in the implementation right now relies on these facts about the HSS:
 * There are two HSS's running on the local machine on localhost
 * One HSS is running on port 3868 and the second is running on port 3869
 * oai_hss only allows support for one mme (mme.OpenAir5G.Alliance)?
