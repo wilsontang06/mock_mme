@@ -13,6 +13,7 @@ import (
 )
 
 // Create & send Update-Location Request
+// sent back the sid through the sent channel
 func sendULR(c diam.Conn, cfg *sm.Settings, imsi *string, randomVal int, sent chan int, sentErr chan struct{}) {
 	meta, ok := smpeer.FromContext(c.Context())
 	if !ok {
@@ -39,6 +40,8 @@ func sendULR(c diam.Conn, cfg *sm.Settings, imsi *string, randomVal int, sent ch
 	}
 }
 
+// Handle ULA
+// send back the result through the ReceivedResult channel
 func handleUpdateLocationAnswer(received chan ReceivedResult) diam.HandlerFunc {
 	return func(c diam.Conn, m *diam.Message) {
 		// log.Printf("Received Update-Location Answer from %s\n%s\n", c.RemoteAddr(), m)

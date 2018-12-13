@@ -208,8 +208,8 @@ func printErrors(ec <-chan *diam.ErrorReport) {
 }
 
 // loadTest() is an example of a testFunc that will be passed into the runTest method.
+// return: a function that takes in an []int of sids, an imsi, and two sent channels (one good, one error)
 // parameters: the connection and cfg of the hss
-// return: a function that takes in an int[] of sids, an imsi, and two sent channels (one good, one error)
 // the use case is to send one imsi to multiple hss', but since this is a load test, there is
 // only one request to an hss
 func loadTest(connection diam.Conn, cfgs *sm.Settings) func([]int, *string, chan int, chan struct{}) {
@@ -219,8 +219,8 @@ func loadTest(connection diam.Conn, cfgs *sm.Settings) func([]int, *string, chan
 }
 
 // twoHSSTest() is an example of a testFunc that will be passed into the runTest method.
+// return: a function that takes in an []int of sids, an imsi, and two sent channels (one good, one error)
 // parameters: two hss connections and two hss cfgs
-// return: a function that takes in an int[] of sids, an imsi, and two sent channels (one good, one error)
 // sends a ULR to the first hss, wait 2 seconds, and then send a ULR with the same imsi to a 2nd HSS
 // different sids so each request can be tracked in our tests
 func twoHSSTest(hss1 diam.Conn, hss2 diam.Conn,
